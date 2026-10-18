@@ -15,104 +15,26 @@ jobs:
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@v4
-      - name: Aplicar correcciones gráficas y del recorrido
+      - name: Descargar y verificar la versión 0.11
+        env:
+          SOURCE_URL: 'https://sdmntprcacentral.oaiusercontent.com/files/00000000-fc2c-820d-b610-d86e8275bf17/raw?se=2026-10-18T05%3A31%3A48Z&sp=r&sv=2026-02-06&sr=b&scid=c5d9a4f4-f047-510f-af65-f510ad396fa6&skoid=db055408-822b-485f-92f8-bfeb3ea92408&sktid=a48cca56-e6da-484e-a814-9c849652bcb3&skt=2026-10-17T14%3A12%3A54Z&ske=2026-10-18T14%3A12%3A54Z&sks=b&skv=2026-02-06&sig=YFI6YULu3OyXNlIn1ysmvpqAoV2Dnwjk6RGtFgBUd10%3D'
+          EXPECTED_SHA256: '2ce23c2ca6ba44cad167225c0623c3e996fd485d7f44a61823e99953345eba7f'
         shell: bash
         run: |
           set -euo pipefail
-          python3 - <<'PY'
-          from pathlib import Path
-          import re, json, base64, hashlib
-
-          path=Path('index.html')
-          outer=path.read_text(encoding='utf-8')
-          assert 'name="ier-presentation-version" content="0.10"' in outer
-          m=re.search(r'const DOCS=(\[.*?\]);\nlet current=',outer,re.S)
-          assert m
-          docs=[base64.b64decode(x).decode('utf-8') for x in json.loads(m.group(1))]
-
-          zoom_html='<div class="zoom"><button id="zoomOut" aria-label="Alejar">−</button><span id="zoomLabel">100%</span><button id="zoomIn" aria-label="Acercar">+</button><button id="fit" class="tiny">Ajustar</button><button id="reset" class="tiny">Restablecer</button><button id="panelToggle" class="tiny" title="Mostrar u ocultar explicación">Panel</button></div>'
-          zoom_css='.zoom{position:absolute;top:10px;right:10px;display:flex;gap:4px;flex-wrap:wrap;max-width:224px;justify-content:flex-end;z-index:12}.zoom button{background:#ffffffed;border:1px solid #ccd9e1;color:#29465c;border-radius:7px;min-width:32px;padding:6px 8px;font-size:12px;box-shadow:0 2px 5px #10293e0b}.zoom .tiny{font-size:11px}#zoomLabel{background:#ffffffcf;border-radius:5px;font-size:10px;padding:7px 5px}'
-          header_css='''<style id="ier-unified-zoom-v11">
-          .diagramhead{gap:7px;flex-wrap:wrap;padding:7px 9px;min-height:40px;}
-          #diagramCaption{flex:1 1 130px;min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;}
-          .diagramhead .right{display:none!important;}
-          .diagramhead .zoom{position:static;top:auto;right:auto;max-width:none;flex:0 0 auto;flex-wrap:nowrap;margin-left:auto;gap:4px;z-index:auto;}
-          .zoom button{padding:5px 7px;box-shadow:none;}
-          #zoomLabel{padding:6px 4px;}
-          @media(max-width:640px){.diagramhead .zoom{gap:3px}.zoom button{padding:5px 6px;font-size:10px;min-width:26px}.zoom .tiny{font-size:10px}}
-          @media print{.diagramhead .zoom{display:none!important}}
-          </style>'''
-
-          for i,s in enumerate(docs):
-              s=re.sub(r'\.zoom\{[^}]*\}\.zoom button\{[^}]*\}\.zoom \.tiny\{[^}]*\}#zoomLabel\{[^}]*\}',zoom_css,s,count=1)
-              s=re.sub(r'<div class="zoom">.*?</div>',zoom_html,s,count=1,flags=re.S)
-              if 'id="ier-unified-zoom-v11"' not in s:
-                  s=s.replace('</head>',header_css+'\n</head>',1)
-              docs[i]=s
-
-          s=docs[2]
-          s=s.replace('<aside class="panel" id="panel"><div class="paneltop"><strong id="panelLabel">Lectura integrada</strong><span id="panelOrigin"></span><button id="clearSelection" title="Limpiar selección" aria-label="Limpiar selección">↺</button><button id="panelToggle" title="Ocultar explicación" aria-label="Ocultar explicación">×</button></div><div class="panelcontent" id="panelContent" aria-live="polite"></div></aside>','<aside class="panel" id="panel"><div class="paneltop"><strong id="panelLabel">Lectura integrada</strong><span id="panelOrigin"></span><button id="clearSelection" aria-label="Volver a la explicación general">×</button></div><div class="panelcontent" id="panelContent" aria-live="polite"></div></aside>')
-          s=s.replace("$('panelToggle').onclick=()=>document.body.classList.toggle('panelClosed');","$('panelToggle').onclick=()=>{if(state.exposure){state.exposure=false;document.body.classList.remove('exposure');$('exposureBtn').textContent='Modo exposición'}else document.body.classList.toggle('panelClosed')};")
-          s=s.replace("$('reset').onclick=()=>{endTour(false);setLens('overview');};","$('reset').onclick=()=>{endTour(false);setLens('overview',{focus:false});fit();};")
-          docs[2]=s
-
-          p01=re.compile(r"function stepTo\(i\)\{state\.tour=.*?renderLayers\(\);\}",re.S)
-          step01="""function stepTo(i){
-           state.tour=Math.max(0,Math.min(D.steps.length-1,i));let s=D.steps[state.tour];state.selected=null;state.edge=null;state.activeNodes=s.nodes;state.activeEdges=s.edges;state.allowed=new Set(s.edges.map(id=>edgeById[id]?.type).filter(Boolean));
-           setOriginal(s.mode==='base',true);state.activeNodes=s.nodes.length?s.nodes:null;state.activeEdges=s.edges;apply();requestAnimationFrame(()=>fit());
-           $('tourbar').classList.add('active');$('stepCount').textContent='PASO '+(state.tour+1)+' DE '+D.steps.length;$('stepTitle').textContent=s.title;$('dots').innerHTML=D.steps.map((_,j)=>'<span class=\"dot '+(j===state.tour?'current':'')+'\"></span>').join('');$('prevStep').disabled=state.tour===0;$('nextStep').disabled=state.tour===D.steps.length-1;$('tourBtn').textContent='Recorrido activo';
-           showPanel('Guion para el cuerpo colegiado');$('panelContent').innerHTML='<span class=\"tag context\">Paso '+(state.tour+1)+' / '+D.steps.length+'</span><h2>'+esc(s.title)+'</h2><div class=\"lead\">'+esc(s.subtitle)+'</div><p style=\"font-size:14px\">'+esc(s.text)+'</p>'+(s.decisions?D.decisions.map(([t,b])=>'<h3>'+esc(t)+'</h3><p>'+esc(b)+'</p>').join(''):'')+sourceButtons(s.sources)+'<div class=\"callout\"><p>Avanza con <b>Siguiente</b> o la tecla <b>→</b>. La figura permanece completa; los elementos resaltados sostienen la explicación sin cambiar el encuadre.</p></div>';$('panelContent').scrollTop=0;renderLayers();
-          }"""
-          for i in (0,1):
-              mm=p01.search(docs[i]); assert mm
-              docs[i]=docs[i][:mm.start()]+step01+docs[i][mm.end():]
-
-          s=docs[2]
-          p2=re.compile(r"function stepTo\(index\)\{.*?\n\}",re.S)
-          mm=p2.search(s); assert mm
-          step2="""function stepTo(index){
-           const i=Math.max(0,Math.min(D.steps.length-1,index)),s=D.steps[i];state.tour=i;
-           if(s.mode)setOriginal(s.mode,{fromTour:true,noPanel:true});else setLens(s.lens,{fromTour:true,noPanel:true,focus:false});
-           requestAnimationFrame(()=>fit());
-           $('tourbar').classList.add('active');$('stepCount').textContent='PASO '+(i+1)+' DE '+D.steps.length;$('stepTitle').textContent=s.title;
-           $('dots').innerHTML=D.steps.map((_,j)=>'<button class=\"dot '+(j===i?'current':'')+'\" data-step=\"'+j+'\" title=\"Paso '+(j+1)+'\" aria-label=\"Ir al paso '+(j+1)+'\"></button>').join('');
-           $('prevStep').disabled=i===0;$('nextStep').disabled=i===D.steps.length-1;$('tourBtn').textContent='Recorrido activo';
-           showPanel('Guion para el cuerpo colegiado');$('panelContent').innerHTML='<span class=\"tag collegiate\">Paso '+(i+1)+' / '+D.steps.length+'</span><h2>'+esc(s.title)+'</h2><p class=\"lead\">'+esc(s.subtitle)+'</p><p class=\"tourcopy\">'+esc(s.text)+'</p>'+(s.decisions?D.decisions.map(([t,b])=>'<h3>'+esc(t)+'</h3><p>'+esc(b)+'</p>').join(''):'')+sourceButtons(s.sources)+'<div class=\"callout\"><p>Avanza con <b>Siguiente</b> o <b>→</b>. Regresa con <b>←</b>. La imagen se mantiene completa y sólo cambian los resaltados y la explicación.</p></div>';
-           $('panelContent').scrollTop=0;
-          }"""
-          docs[2]=s[:mm.start()]+step2+s[mm.end():]
-
-          relocate='''<script id="ier-unified-zoom-position-v11">
-          (function(){
-           const zoomControls=document.querySelector('#canvaswrap .zoom');
-           const diagramHead=document.querySelector('.diagramhead');
-           if(zoomControls&&diagramHead&&!diagramHead.contains(zoomControls))diagramHead.append(zoomControls);
-          })();
-          </script>'''
-          for i,s in enumerate(docs):
-              if 'id="ier-unified-zoom-position-v11"' not in s:
-                  s=s.replace('<script id="ier-deck-bridge">',relocate+'\n<script id="ier-deck-bridge">',1)
-              assert s.count('id="panelToggle"')==1
-              assert zoom_html in s
-              tour=re.search(r'function stepTo.*?function endTour',s,re.S).group(0)
-              assert 'Ampliar lo resaltado' not in tour
-              docs[i]=s
-
-          encoded=[base64.b64encode(s.encode()).decode() for s in docs]
-          out=outer[:m.start(1)]+json.dumps(encoded,separators=(',',':'))+outer[m.end(1):]
-          out=out.replace('name="ier-presentation-version" content="0.10"','name="ier-presentation-version" content="0.11"',1)
-          out=out.replace('Propuesta para deliberación colegiada</div>','Propuesta para deliberación colegiada · v0.11</div>',1)
-          data=out.encode()
-          assert len(data)==1426117, len(data)
-          assert hashlib.sha256(data).hexdigest()=='2ce23c2ca6ba44cad167225c0623c3e996fd485d7f44a61823e99953345eba7f'
-          path.write_bytes(data)
-          Path('SHA256SUMS').write_text('2ce23c2ca6ba44cad167225c0623c3e996fd485d7f44a61823e99953345eba7f  index.html\n')
-          PY
+          echo "::add-mask::$SOURCE_URL"
+          curl --fail --location --retry 2 --max-time 90 --silent --show-error "$SOURCE_URL" -o index.html
+          echo "$EXPECTED_SHA256  index.html" | sha256sum --check --strict
+          test "$(wc -c < index.html)" -eq 1426117
+          grep -q 'name="ier-presentation-version" content="0.11"' index.html
+          printf '%s\n' "$EXPECTED_SHA256  index.html" > SHA256SUMS
       - name: Guardar versión 0.11
         run: |
           set -euo pipefail
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add index.html SHA256SUMS
-          git commit -m 'Actualizar organigramas interactivos IER a v0.11'
-          git push origin HEAD:main
+          if ! git diff --cached --quiet; then
+            git commit -m 'Actualizar organigramas interactivos IER a v0.11'
+            git push origin HEAD:main
+          fi
