@@ -1,0 +1,41 @@
+name: Importar presentación IER v0.10
+
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/importar-organigramas.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  importar:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Obtener repositorio
+        uses: actions/checkout@v4
+      - name: Descargar y comprobar el archivo aprobado
+        env:
+          SOURCE_URL: 'https://sdmntprsoutheastus3.oaiusercontent.com/files/00000000-8f30-820c-97d2-648a7c828af1/raw?se=2026-10-18T04%3A52%3A20Z&sp=r&sv=2026-02-06&sr=b&scid=6486bd0e-6619-52d2-8855-7eed46eefa21&skoid=db055408-822b-485f-92f8-bfeb3ea92408&sktid=a48cca56-e6da-484e-a814-9c849652bcb3&skt=2026-10-17T19%3A33%3A37Z&ske=2026-10-18T19%3A33%3A37Z&sks=b&skv=2026-02-06&sig=bNis577SVQEwb1lY1vt%2B9lGaE9v2rvFOrI85vXxCTAw%3D'
+        run: |
+          set -euo pipefail
+          echo "::add-mask::$SOURCE_URL"
+          curl --fail --silent --show-error --location --retry 2 --max-time 90 "$SOURCE_URL" --output index.html
+          echo '5e9f8dd4305b99f37a741a5fd13455f4fa26204e59ce9cd9bb95cc1525d99f2c  index.html' | sha256sum --check --strict
+          test "$(wc -c < index.html)" -eq 1422358
+          grep -q 'name="ier-presentation-version" content="0.10"' index.html
+          touch .nojekyll
+          printf '%s\n' '5e9f8dd4305b99f37a741a5fd13455f4fa26204e59ce9cd9bb95cc1525d99f2c  index.html' > SHA256SUMS
+      - name: Guardar presentación completa sin modificarla
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add index.html .nojekyll SHA256SUMS
+          if ! git diff --cached --quiet; then
+            git commit -m 'Publicar organigramas interactivos IER v0.10 (archivo íntegro verificado)'
+            git push origin HEAD:main
+          fi
+          printf '%s\n' 'Presentación v0.10 incorporada como index.html.' 'SHA-256 verificado; archivo original sin modificaciones.' >> "$GITHUB_STEP_SUMMARY"
