@@ -2,34 +2,35 @@ name: Inspeccionar estructura v0.14 para mejora IA
 on:
   push:
     paths: ['.github/workflows/inspeccionar-v15.yml']
-  workflow_dispatch:
-permissions:
-  contents: read
+permissions: {contents: read}
 jobs:
   inspeccion:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Inspeccionar la cuarta hoja sin alterar archivos
+      - name: Extraer IDs, rutas, enfoques y pasos
         shell: bash
         run: |
           python3 - <<'PY'
-          import re, json, base64, pathlib
+          import re,json,base64,pathlib
           s=pathlib.Path('index.html').read_text()
-          print('outer head:',s[:650])
-          for pattern in [r'const DOCS=(\[.*?\]);\nlet current=',r'const DOCS=(\[.*?\]);',r'const DOCS=']:
-            m=re.search(pattern,s,re.S)
-            print('match',pattern[:30],bool(m))
-            if m and m.lastindex:
-              docs=json.loads(m.group(1))
-              print('docs',len(docs))
-              d=base64.b64decode(docs[-1]).decode()
-              print('doc head',d[:900])
-              for p in ['Departamento de Inteligencia','Atención Administrativa','Educación Continua','Comunicación de la Ciencia','function stepTo','const D=','const NODES','const EDGES','ai-']:
-                print('TERM',p, 'count',d.lower().count(p.lower()))
-                k=d.lower().find(p.lower())
-                if k>=0: print('CONTEXT',d[max(0,k-260):k+390].replace('\\n',' ')[:650])
-              for pat in [r'const D\s*=\s*',r'const nodes\s*=\s*',r'const edges\s*=\s*',r'const LENSES',r'const DATA']:
-                print('PAT',pat,[(x.start(),d[x.start():x.start()+160].replace('\\n',' ')) for x in list(re.finditer(pat,d))[:3]])
-              break
+          a=json.loads(re.search(r'const DOCS=(\[.*?\]);\nlet current=',s,re.S).group(1))
+          d=base64.b64decode(a[3]).decode()
+          D=json.loads(re.search(r'<script id="data" type="application/json">(.*?)</script>',d,re.S).group(1))
+          print('KEYS',list(D))
+          for k,v in D.items():
+            print('FIELD',k,'type',type(v).__name__,'size',len(v) if hasattr(v,'__len__') else None)
+          for k in ['nodes','edges','lenses','layers','steps','details']:
+            v=D.get(k)
+            if k=='nodes':
+              print('NODES',json.dumps([n for n in v if any(t in str(n).lower() for t in ['inteligencia','educaci','comunicaci','admin_service','uec','ucc'])],ensure_ascii=False)[:9000])
+            elif k=='edges':
+              print('EDGES',json.dumps([e for e in v if any(t in str(e).lower() for t in ['ia','ai','educaci','comunicaci','admin_service'])],ensure_ascii=False)[:10000])
+            elif k=='lenses':print('LENSES',json.dumps(v,ensure_ascii=False)[:7000])
+            elif k=='layers':print('LAYERS',json.dumps(v,ensure_ascii=False)[:4500])
+            elif k=='steps':print('STEPS',json.dumps(v[-4:],ensure_ascii=False)[:5000])
+            elif k=='details':print('DETAILS',json.dumps({kk:vv for kk,vv in v.items() if kk in ['ai','uec','ucc','admin_service']},ensure_ascii=False)[:5500])
+          for p in ['function edgePath','function renderEdges','function renderLayers','function draw','function buildGraph','function setLens','function renderChart']:
+            k=d.find(p)
+            if k>=0:print('JS',p,d[k:k+900].replace('\\n',' ')[:900])
           PY
