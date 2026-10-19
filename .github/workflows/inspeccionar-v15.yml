@@ -1,0 +1,35 @@
+name: Inspeccionar estructura v0.14 para mejora IA
+on:
+  push:
+    paths: ['.github/workflows/inspeccionar-v15.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  inspeccion:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Inspeccionar la cuarta hoja sin alterar archivos
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import re, json, base64, pathlib
+          s=pathlib.Path('index.html').read_text()
+          print('outer head:',s[:650])
+          for pattern in [r'const DOCS=(\[.*?\]);\nlet current=',r'const DOCS=(\[.*?\]);',r'const DOCS=']:
+            m=re.search(pattern,s,re.S)
+            print('match',pattern[:30],bool(m))
+            if m and m.lastindex:
+              docs=json.loads(m.group(1))
+              print('docs',len(docs))
+              d=base64.b64decode(docs[-1]).decode()
+              print('doc head',d[:900])
+              for p in ['Departamento de Inteligencia','Atención Administrativa','Educación Continua','Comunicación de la Ciencia','function stepTo','const D=','const NODES','const EDGES','ai-']:
+                print('TERM',p, 'count',d.lower().count(p.lower()))
+                k=d.lower().find(p.lower())
+                if k>=0: print('CONTEXT',d[max(0,k-260):k+390].replace('\\n',' ')[:650])
+              for pat in [r'const D\s*=\s*',r'const nodes\s*=\s*',r'const edges\s*=\s*',r'const LENSES',r'const DATA']:
+                print('PAT',pat,[(x.start(),d[x.start():x.start()+160].replace('\\n',' ')) for x in list(re.finditer(pat,d))[:3]])
+              break
+          PY
