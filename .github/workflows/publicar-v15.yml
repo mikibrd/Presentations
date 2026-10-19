@@ -1,0 +1,118 @@
+name: Publicar organigramas IER v0.15
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/publicar-v15.yml']
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  actualizar:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - name: Aplicar enlaces de IA a UEC, UCC y atención administrativa
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import base64, hashlib, json, pathlib, re
+          p=pathlib.Path('index.html')
+          old=p.read_text(encoding='utf-8')
+          assert 'name="ier-presentation-version" content="0.14"' in old, 'Se esperaba v0.14'
+          assert hashlib.sha256(old.encode()).hexdigest() == 'f6727997cab961cd0ec7235858445f97b4ec1966eb5110aaeb943c0460e490ff', 'Archivo fuente diferente de v0.14 verificada'
+          match=re.search(r'const DOCS=(\[.*?\]);\nlet current=',old,re.S)
+          assert match, 'No se encuentra presentación autocontenida'
+          docs=json.loads(match.group(1))
+          assert len(docs)==4
+          original_docs=docs[:3]
+          doc=base64.b64decode(docs[3]).decode('utf-8')
+          dm=re.search(r'(<script id="data" type="application/json">)(.*?)(</script>)',doc,re.S)
+          assert dm, 'No se encuentra modelo de cuarta hoja'
+          D=json.loads(dm.group(2))
+          assert D['version']=='0.14'
+          node_ids={n['id'] for n in D['nodes']}
+          assert {'ai','ucc','uec','admin_service'} <= node_ids
+          ids={e['id'] for e in D['edges']}
+          additions=[
+           dict(id='ai-uec',a='ai',b='uec',type='resource',path='M 1865 710 L 1811 710 L 1785 710',label='IA ↔ UEC · Formación y aprendizaje asistidos',desc='Colaboración para diseñar recursos educativos, analítica del aprendizaje, accesibilidad y formación asistida con IA; la UEC conserva responsabilidad académica y operativa de sus programas.',source='FUT',bidir=True,core=False),
+           dict(id='ai-ucc',a='ai',b='ucc',type='resource',path='M 1865 657 L 1812 657 L 1812 575 L 1785 575',label='IA ↔ UCC · Comunicación pública y apropiación del conocimiento',desc='Apoyo a producción y análisis de contenidos, accesibilidad, diálogo público y evaluación de alcance; la UCC conserva responsabilidad editorial, verificación científica y trato con públicos.',source='FUT',bidir=True,core=False),
+           dict(id='ai-adminservice',a='ai',b='admin_service',type='resource',path='M 2335 715 L 2380 715 L 2380 905 L 2420 905',label='IA ↔ Atención administrativa integrada · Procesos y analítica',desc='Automatización supervisada de flujos, clasificación y seguimiento de solicitudes, tableros y detección de cuellos de botella, con protección de datos y decisiones administrativas bajo responsables autorizados.',source='FUT',bidir=True,core=False)
+          ]
+          assert not ids.intersection(x['id'] for x in additions)
+          D['edges'].extend(additions)
+          updates={
+           'ai':('Colaboración transversal adicional','Con Educación Continua: recursos y aprendizaje asistidos; con Comunicación de la Ciencia: divulgación y apropiación social; con Atención Administrativa Integrada: automatización supervisada y analítica de procesos.'),
+           'uec':('IA como apoyo educativo','La UEC puede acordar proyectos de IA para diseño instruccional, recursos accesibles, aprendizaje y evaluación; mantiene el criterio pedagógico y la responsabilidad de la oferta.'),
+           'ucc':('IA y comunicación responsable','La UCC puede utilizar IA para apoyo a contenidos, formatos accesibles, análisis de audiencias y diálogo social; conserva revisión científica, responsabilidad editorial y transparencia.'),
+           'admin_service':('IA y mejora de procesos','La atención integrada puede incorporar automatización de tareas repetitivas, seguimiento de expedientes y análisis de cuellos de botella, con supervisión humana, permisos y protección de datos.')
+          }
+          for key,(title,body) in updates.items():
+            D['details'][key]['sections'].append([title,body])
+          D['lenses']['ia_transversal']={
+            'title':'IA transversal · educación, comunicación y administración',
+            'text':'Tres colaboraciones funcionales desde IA: UEC para formación asistida; UCC para comunicación y apropiación social; y atención administrativa integrada para automatización y analítica supervisadas. No cambian las adscripciones.',
+            'nodes':['sdigital','ai','svct','ucc','uec','sadmin','admin_service','dep_edu','projects'],
+            'edges':['sdig-ai','svct-ucc','svct-uec','sadmin-service','ai-ucc','ai-uec','ai-adminservice','edu-ucc','edu-uec'],
+            'layers':['resource','academic'],
+            'focus':False
+          }
+          for lens, extra in {
+            'digital':['ai-ucc','ai-uec','ai-adminservice'],
+            'education':['ai-ucc','ai-uec'],
+            'linkage':['ai-ucc','ai-uec'],
+            'administration':['ai-adminservice'],
+            'projects':['ai-adminservice','ai-ucc','ai-uec']
+          }.items():
+            L=D['lenses'][lens]
+            L['edges']=list(dict.fromkeys(L['edges']+extra))
+            L['nodes']=list(dict.fromkeys((L['nodes'] or [])+['ai']+(['ucc','uec'] if lens in ('digital','education','linkage','projects') else [])+(['admin_service'] if lens in ('digital','administration','projects') else [])))
+          D['steps'].insert(-3,{
+            'title':'IA transversal: formación, comunicación y administración',
+            'subtitle':'Tres nuevas relaciones funcionales; ninguna establece dependencia jerárquica.',
+            'lens':'ia_transversal',
+            'text':'El Departamento de IA colabora con Educación Continua en diseño instruccional y aprendizaje asistidos; con Comunicación de la Ciencia en contenidos accesibles y apropiación social; y con Atención Administrativa Integrada en automatización supervisada y análisis de trámites. Cada unidad conserva sus atribuciones, validación y responsabilidad por datos y resultados.',
+            'sources':['RI','MO','PDI','FUT']
+          })
+          D['version']='0.15'
+          D['subtitle']='Propuesta futura con apoyos transversales: IA para investigación, ingeniería, formación, comunicación y administración.'
+          doc=doc[:dm.start(2)]+json.dumps(D,ensure_ascii=False,separators=(',',':'))+doc[dm.end(2):]
+          doc=doc.replace('v0.14','v0.15').replace('IER v0.14','IER v0.15')
+          docs[3]=base64.b64encode(doc.encode('utf-8')).decode('ascii')
+          assert docs[:3]==original_docs
+          outer=old[:match.start(1)]+json.dumps(docs,separators=(',',':'))+old[match.end(1):]
+          outer=outer.replace('name="ier-presentation-version" content="0.14"','name="ier-presentation-version" content="0.15"',1)
+          assert outer.count('name="ier-presentation-version" content="0.15"')==1
+          testdocs=json.loads(re.search(r'const DOCS=(\[.*?\]);\nlet current=',outer,re.S).group(1))
+          T=json.loads(re.search(r'<script id="data" type="application/json">(.*?)</script>',base64.b64decode(testdocs[3]).decode(),re.S).group(1))
+          assert T['version']=='0.15' and len(T['steps'])==13
+          assert all(x['id'] in {e['id'] for e in T['edges']} for x in additions)
+          assert all(x['id'] in T['lenses']['ia_transversal']['edges'] for x in additions)
+          assert T['steps'][-4]['lens']=='ia_transversal'
+          assert all(len(base64.b64decode(testdocs[i]))==len(base64.b64decode(original_docs[i])) for i in range(3))
+          p.write_text(outer,encoding='utf-8')
+          sha=hashlib.sha256(outer.encode()).hexdigest()
+          pathlib.Path('SHA256SUMS').write_text(f'{sha}  index.html\n')
+          print('Versión:',T['version'],'Tamaño:',len(outer.encode()),'SHA-256:',sha,'Enlaces:',[x['id'] for x in additions])
+          PY
+      - name: Guardar HTML y comprobación
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add index.html SHA256SUMS
+          git commit -m 'Publicar IER v0.15: IA con UEC, UCC y atención administrativa'
+          git push origin HEAD:main
+          echo 'v0.15 incorporada en main; GitHub Pages publica desde la rama existente.' >> "$GITHUB_STEP_SUMMARY"
+      - name: Generar respaldo descargable de la versión 0.15
+        uses: actions/upload-artifact@v4
+        with:
+          name: IER-organigramas-v0.15
+          path: |
+            index.html
+            SHA256SUMS
+          retention-days: 90
